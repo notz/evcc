@@ -24,12 +24,17 @@
 					{{ $t("main.chargingPlan.time") }}
 				</label>
 			</div>
-			<div class="col-3">
+			<div class="col-2">
 				<label :for="formId('goal')">
 					{{ $t("main.chargingPlan.goal") }}
 				</label>
 			</div>
 			<div class="col-2">
+				<label :for="formId('costLimit')">
+					{{ $t("main.chargingPlan.costLimit") }}
+				</label>
+			</div>
+			<div class="col-1">
 				<label :for="formId('active')"> {{ $t("main.chargingPlan.active") }} </label>
 			</div>
 		</div>
@@ -76,7 +81,7 @@
 					{{ $t("main.chargingPlan.goal") }}
 				</label>
 			</div>
-			<div class="col-7 col-lg-3 mb-2 mb-lg-0">
+			<div class="col-7 col-lg-2 mb-2 mb-lg-0">
 				<select
 					:id="formId('goal')"
 					v-model="selectedSoc"
@@ -85,6 +90,25 @@
 					@change="update()"
 				>
 					<option v-for="opt in socOptions" :key="opt.value" :value="opt.value">
+						{{ opt.name }}
+					</option>
+				</select>
+			</div>
+			<div class="col-5 d-lg-none col-form-label">
+				<label :for="formId('costLimit')">
+					{{ $t("main.chargingPlan.costLimit") }}
+				</label>
+			</div>
+			<div :class="['col-7', 'col-lg-2', 'mb-2', 'mb-lg-0']">
+				<select
+					:id="formId('costLimit')"
+					v-model="selectedCostLimit"
+					class="form-select mx-0"
+					data-testid="repeating-plan-costlimit"
+					@change="update()"
+				>
+					<option value="null">{{ $t("smartCost.none") }}</option>
+					<option v-for="opt in costLimitOptions" :key="opt.value" :value="opt.value">
 						{{ opt.name }}
 					</option>
 				</select>
@@ -110,7 +134,7 @@
 				</div>
 			</div>
 			<div
-				class="col-4 col-lg-2 d-flex align-items-center justify-content-end justify-content-lg-start"
+				class="col-4 col-lg-1 d-flex align-items-center justify-content-end justify-content-lg-start"
 			>
 				<button
 					v-if="showApply"
@@ -157,6 +181,7 @@ export default defineComponent({
 		time: String,
 		tz: String,
 		soc: Number,
+		costLimit: { type: Number as PropType<number | null>, default: null },
 		showHeader: Boolean,
 		active: Boolean,
 		rangePerSoc: Number,
@@ -169,6 +194,7 @@ export default defineComponent({
 			selectedTime: this.time,
 			selectedSoc: this.soc,
 			selectedActive: this.active,
+			selectedCostLimit: this.costLimit,
 		};
 	},
 	computed: {
@@ -177,7 +203,8 @@ export default defineComponent({
 				!deepEqual(this.weekdays, this.selectedWeekdays) ||
 				this.time !== this.selectedTime ||
 				this.soc !== this.selectedSoc ||
-				this.active !== this.selectedActive
+				this.active !== this.selectedActive ||
+				this.costLimit !== this.selectedCostLimit
 			);
 		},
 		showApply(): boolean {
@@ -195,6 +222,12 @@ export default defineComponent({
 		dayOptions(): SelectOption<number>[] {
 			return this.getWeekdaysList("long");
 		},
+		costLimitOptions(): SelectOption<number>[] {
+			// a list of entries from -0,30 to 70
+			return Array.from(Array(100).keys())
+				.map((i) => (i - 30) / 100)
+				.map(this.costLimitOption);
+		},
 	},
 	watch: {
 		weekdays(newValue: number[], oldValue: number[]) {
@@ -210,6 +243,9 @@ export default defineComponent({
 		},
 		active(newValue: boolean) {
 			this.selectedActive = newValue;
+		},
+		costLimit(newValue: number) {
+			this.selectedCostLimit = newValue;
 		},
 	},
 	methods: {
@@ -227,6 +263,10 @@ export default defineComponent({
 			const name = this.fmtSocOption(value, this.rangePerSoc, distanceUnit());
 			return { value, name };
 		},
+		costLimitOption(value: number): SelectOption<number> {
+			const name = this.fmtPricePerKWh(value, this.currency);
+			return { value, name };
+		},
 		update(forceSave = false): void {
 			const plan = {
 				weekdays: this.selectedWeekdays,
@@ -234,6 +274,7 @@ export default defineComponent({
 				soc: this.selectedSoc,
 				tz: this.tz,
 				active: this.selectedActive,
+				costLimit: this.selectedCostLimit === "null" ? null : this.selectedCostLimit,
 			};
 
 			if (forceSave || !this.selectedActive) {

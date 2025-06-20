@@ -33,10 +33,11 @@ func (lp *Loadpoint) EffectivePriority() int {
 }
 
 type plan struct {
-	Id    int
-	Start time.Time // last possible start time
-	End   time.Time // user-selected finish time
-	Soc   int
+	Id    		int
+	Start 		time.Time // last possible start time
+	End   		time.Time // user-selected finish time
+	Soc   		int
+	CostLimit   *float64 // cost limit in currency unit, nil if not set
 }
 
 func (lp *Loadpoint) nextActivePlan(maxPower float64, plans []plan) *plan {
@@ -59,12 +60,12 @@ func (lp *Loadpoint) nextActivePlan(maxPower float64, plans []plan) *plan {
 	return nil
 }
 
-// nextVehiclePlan returns the next vehicle plan time, soc, id
+// nextVehiclePlan returns the next vehicle plan time, soc, id and costlimit
 // Returns locked plan if available, otherwise calculates fresh
-func (lp *Loadpoint) nextVehiclePlan() (time.Time, int, int) {
+func (lp *Loadpoint) nextVehiclePlan() (time.Time, int, int, *float64) {
 	// return locked plan if available
 	if p := lp.planLocked; p.Id > 0 {
-		return p.Time, p.Soc, p.Id
+		return p.Time, p.Soc, p.Id, p.CostLimit
 	}
 
 	// calculate fresh plan
@@ -88,29 +89,29 @@ func (lp *Loadpoint) nextVehiclePlan() (time.Time, int, int) {
 				continue
 			}
 
-			plans = append(plans, plan{Id: index + 2, Soc: rp.Soc, End: planTime})
+			plans = append(plans, plan{Id: index + 2, Soc: rp.Soc, End: planTime, CostLimit: rp.CostLimit})
 		}
 
 		// calculate earliest required plan start
 		if plan := lp.nextActivePlan(lp.effectiveMaxPower(), plans); plan != nil {
-			return plan.End, plan.Soc, plan.Id
+			return plan.End, plan.Soc, plan.Id, plan.CostLimit
 		}
 	}
-	return time.Time{}, 0, 0
+	return time.Time{}, 0, 0, nil
 }
 
 // EffectivePlanSoc returns the soc target for the current plan
 func (lp *Loadpoint) EffectivePlanSoc() int {
 	lp.RLock()
 	defer lp.RUnlock()
-	_, soc, _ := lp.nextVehiclePlan()
+	_, soc, _, _ := lp.nextVehiclePlan()
 	return soc
 }
 
 // getPlanId returns the plan id of the current/next plan
 func (lp *Loadpoint) getPlanId() int {
 	if lp.socBasedPlanning() {
-		_, _, id := lp.nextVehiclePlan()
+		_, _, id, _ := lp.nextVehiclePlan()
 		return id
 	}
 	if lp.planEnergy > 0 {
@@ -131,7 +132,7 @@ func (lp *Loadpoint) EffectivePlanTime() time.Time {
 	lp.RLock()
 	defer lp.RUnlock()
 	if lp.socBasedPlanning() {
-		ts, _, _ := lp.nextVehiclePlan()
+		ts, _, _, _ := lp.nextVehiclePlan()
 		return ts
 	}
 

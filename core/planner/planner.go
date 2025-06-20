@@ -94,7 +94,7 @@ func continuousPlan(rates api.Rates, start, end time.Time) api.Rates {
 	return res
 }
 
-func (t *Planner) Plan(requiredDuration, precondition time.Duration, targetTime time.Time, continuous bool) api.Rates {
+func (t *Planner) Plan(requiredDuration, precondition time.Duration, targetTime time.Time, continuous bool, costLimit *float64) api.Rates {
 	if t == nil || requiredDuration <= 0 {
 		return nil
 	}
@@ -107,95 +107,139 @@ func (t *Planner) Plan(requiredDuration, precondition time.Duration, targetTime 
 		targetTime = latestStart.Add(requiredDuration)
 	}
 
-	// simplePlan only considers time, but not cost
-	simplePlan := api.Rates{
-		api.Rate{
-			Start: latestStart,
-			End:   targetTime,
-		},
-	}
+	if costLimit != nil {
 
-	// target charging without tariff or late start
-	if t.tariff == nil {
-		return simplePlan
-	}
-
-	rates, err := t.tariff.Rates()
-
-	// treat like normal target charging if we don't have rates
-	if len(rates) == 0 || err != nil {
-		return simplePlan
-	}
-
-	// consume remaining time
-	if t.clock.Until(targetTime) <= requiredDuration {
-		return continuousPlan(rates, latestStart, targetTime)
-	}
-
-	// rates are by default sorted by date, oldest to newest
-	last := rates[len(rates)-1].End
-
-	// reduce planning horizon to available rates
-	if targetTime.After(last) {
-		// there is enough time for charging after end of current rates
-		durationAfterRates := targetTime.Sub(last)
-		if durationAfterRates >= requiredDuration {
+		// don't charge if don't have a tariff
+		if t.tariff == nil {
 			return nil
 		}
 
-		// need to use some of the available slots
-		t.log.DEBUG.Printf("planner: target time beyond available slots- reducing plan horizon from %v to %v",
-			requiredDuration.Round(time.Second), durationAfterRates.Round(time.Second))
+		rates, err := t.tariff.Rates()
 
-		targetTime = last
-		requiredDuration -= durationAfterRates
-		precondition = max(precondition-durationAfterRates, 0)
-	}
-
-	rates = clampRates(rates, now, targetTime)
-
-	// check if rate coverage is sufficient for planning
-	if len(rates) == 0 || rates[len(rates)-1].End.Sub(rates[0].Start) < requiredDuration {
-		return simplePlan
-	}
-
-	// don't precondition longer than charging duration
-	precondition = min(precondition, requiredDuration)
-
-	// reduce target time by precondition duration
-	targetTime = targetTime.Add(-precondition)
-
-	// separate precond rates, to be appended to plan afterwards
-	var precond api.Rates
-	if precondition > 0 {
-		rates, precond = splitPreconditionSlots(rates, targetTime)
-
-		// reduce required duration by precondition, skip planning if required
-		requiredDuration = max(requiredDuration-precondition, 0)
-		if requiredDuration == 0 {
-			return precond
+		// don't charge if we don't have rates
+		if err != nil || len(rates) == 0 {
+			return nil
 		}
-	}
 
-	// create plan unless only precond slots remaining
-	var plan api.Rates
-	if continuous {
-		// find cheapest continuous window
-		plan = findContinuousWindow(rates, requiredDuration, targetTime)
-	} else {
+		rates = clampRates(rates, now, targetTime)
+
 		// sort rates by price and time
 		slices.SortStableFunc(rates, sortByCost)
 
-		plan = optimalPlan(rates, requiredDuration, targetTime)
+		// remove rates higher than cost limit
+		var filtered api.Rates
+		for _, r := range rates {
+			if r.Value <= *costLimit {
+				filtered = append(filtered, r)
+			}
+		}
+		rates = filtered
+
+		// don't charge if we don't have rates
+		if err != nil || len(rates) == 0 {
+			return nil
+		}
+
+		// sort rates by price and time
+		slices.SortStableFunc(rates, sortByCost)
+
+		var plan = optimalPlan(rates, requiredDuration, targetTime)
 
 		// sort plan by time
 		plan.Sort()
+
+		return plan
+
+	} else {
+
+		// simplePlan only considers time, but not cost
+		simplePlan := api.Rates{
+			api.Rate{
+				Start: latestStart,
+				End:   targetTime,
+			},
+		}
+
+		// target charging without tariff or late start
+		if t.tariff == nil {
+			return simplePlan
+		}
+
+		rates, err := t.tariff.Rates()
+
+		// treat like normal target charging if we don't have rates
+		if len(rates) == 0 || err != nil {
+			return simplePlan
+		}
+
+		// consume remaining time
+		if t.clock.Until(targetTime) <= requiredDuration {
+			return continuousPlan(rates, latestStart, targetTime)
+		}
+
+		// rates are by default sorted by date, oldest to newest
+		last := rates[len(rates)-1].End
+
+		// reduce planning horizon to available rates
+		if targetTime.After(last) {
+			// there is enough time for charging after end of current rates
+			durationAfterRates := targetTime.Sub(last)
+			if durationAfterRates >= requiredDuration {
+				return nil
+			}
+
+			// need to use some of the available slots
+			t.log.DEBUG.Printf("planner: target time beyond available slots- reducing plan horizon from %v to %v",
+				requiredDuration.Round(time.Second), durationAfterRates.Round(time.Second))
+
+			targetTime = last
+			requiredDuration -= durationAfterRates
+			precondition = max(precondition-durationAfterRates, 0)
+		}
+
+		rates = clampRates(rates, now, targetTime)
+
+		// check if rate coverage is sufficient for planning
+		if len(rates) == 0 || rates[len(rates)-1].End.Sub(rates[0].Start) < requiredDuration {
+			return simplePlan
+		}
+
+		// don't precondition longer than charging duration
+		precondition = min(precondition, requiredDuration)
+
+		// reduce target time by precondition duration
+		targetTime = targetTime.Add(-precondition)
+
+		// separate precond rates, to be appended to plan afterwards
+		var precond api.Rates
+		if precondition > 0 {
+			rates, precond = splitPreconditionSlots(rates, targetTime)
+
+			// reduce required duration by precondition, skip planning if required
+			requiredDuration = max(requiredDuration-precondition, 0)
+			if requiredDuration == 0 {
+				return precond
+			}
+		}
+
+		// create plan unless only precond slots remaining
+		var plan api.Rates
+		if continuous {
+			// find cheapest continuous window
+			plan = findContinuousWindow(rates, requiredDuration, targetTime)
+		} else {
+			// sort rates by price and time
+			slices.SortStableFunc(rates, sortByCost)
+
+			plan = optimalPlan(rates, requiredDuration, targetTime)
+
+			// sort plan by time
+			plan.Sort()
+		}
+
+		// re-append precondition slots
+		return append(plan, precond...)
 	}
-
-	// re-append precondition slots
-	plan = append(plan, precond...)
-
-	return plan
 }
 
 func splitPreconditionSlots(rates api.Rates, preCondStart time.Time) (api.Rates, api.Rates) {

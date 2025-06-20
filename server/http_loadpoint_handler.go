@@ -14,18 +14,20 @@ import (
 )
 
 type PlanResponse struct {
-	PlanId   int       `json:"planId"`
-	PlanTime time.Time `json:"planTime"`
-	Duration int64     `json:"duration"`
-	Plan     api.Rates `json:"plan"`
-	Power    float64   `json:"power"`
+	PlanId		int       `json:"planId"`
+	PlanTime 	time.Time `json:"planTime"`
+	Duration 	int64     `json:"duration"`
+	CostLimit 	*float64  `json:"costLimit,omitempty"`
+	Plan     	api.Rates `json:"plan"`
+	Power    	float64   `json:"power"`
 }
 
 type PlanPreviewResponse struct {
-	PlanTime time.Time `json:"planTime"`
-	Duration int64     `json:"duration"`
-	Plan     api.Rates `json:"plan"`
-	Power    float64   `json:"power"`
+	PlanTime 	time.Time `json:"planTime"`
+	Duration 	int64     `json:"duration"`
+	CostLimit	*float64  `json:"costLimit,omitempty"`
+	Plan     	api.Rates `json:"plan"`
+	Power    	float64   `json:"power"`
 }
 
 // planHandler returns the current plan
@@ -38,14 +40,16 @@ func planHandler(lp loadpoint.API) http.HandlerFunc {
 		goal, _ := lp.GetPlanGoal()
 		requiredDuration := lp.GetPlanRequiredDuration(goal, maxPower)
 		strategy := lp.EffectivePlanStrategy()
-		plan := lp.GetPlan(planTime, requiredDuration, strategy.Precondition, strategy.Continuous)
+		costLimit := lp.GetPlanCostLimit()
+		plan := lp.GetPlan(planTime, requiredDuration, strategy.Precondition, strategy.Continuous, costLimit)
 
 		res := PlanResponse{
-			PlanId:   id,
-			PlanTime: planTime,
-			Duration: int64(requiredDuration.Seconds()),
-			Plan:     plan,
-			Power:    maxPower,
+			PlanId:   	id,
+			PlanTime: 	planTime,
+			Duration: 	int64(requiredDuration.Seconds()),
+			CostLimit:	costLimit,
+			Plan:     	plan,
+			Power:    	maxPower,
 		}
 
 		jsonWrite(w, res)
@@ -69,6 +73,12 @@ func staticPlanPreviewHandler(lp loadpoint.API) http.HandlerFunc {
 			return
 		}
 
+		costLimit, err := strconv.ParseFloat(vars["costLimit"], 64)
+		/*if err != nil {
+			jsonError(w, http.StatusBadRequest, err)
+			return
+		}*/
+
 		switch typ := vars["type"]; typ {
 		case "soc":
 			if !lp.SocBasedPlanning() {
@@ -89,13 +99,14 @@ func staticPlanPreviewHandler(lp loadpoint.API) http.HandlerFunc {
 		requiredDuration := lp.GetPlanRequiredDuration(goal, maxPower)
 		strategy := lp.EffectivePlanStrategy()
 
-		plan := lp.GetPlan(planTime, requiredDuration, strategy.Precondition, strategy.Continuous)
+		plan := lp.GetPlan(planTime, requiredDuration, strategy.Precondition, strategy.Continuous, &costLimit)
 
 		res := PlanPreviewResponse{
-			PlanTime: planTime,
-			Duration: int64(requiredDuration.Seconds()),
-			Plan:     plan,
-			Power:    maxPower,
+			PlanTime: 	planTime,
+			Duration: 	int64(requiredDuration.Seconds()),
+			CostLimit:  &costLimit,
+			Plan:     	plan,
+			Power:    	maxPower,
 		}
 
 		jsonWrite(w, res)

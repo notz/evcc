@@ -10,6 +10,7 @@ type RepeatingPlan struct {
 	Time     string `json:"time"`     // HH:MM
 	Tz       string `json:"tz"`       // timezone in IANA format
 	Soc      int    `json:"soc"`      // target soc
+	CostLimit    *float64 `json:"costLimit,omitempty"` // only charge if cost is below this value
 	Active   bool   `json:"active"`   // active flag
 }
 

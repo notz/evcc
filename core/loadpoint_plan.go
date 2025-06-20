@@ -19,6 +19,7 @@ type PlanLock struct {
 	Time time.Time // target time (committed goal, persists during overrun)
 	Soc  int       // target soc
 	Id   int       // id (0=none, 1=static, 2+=repeating), needed to highlight the plan in ui
+	CostLimit *float64 // cost limit in currency unit, nil if not set
 }
 
 // clearPlanLock clears the locked plan goal
@@ -34,11 +35,12 @@ func (lp *Loadpoint) ClearPlanLock() {
 }
 
 // lockPlanGoal locks the current plan goal to handle overruns (soc-based plans)
-func (lp *Loadpoint) lockPlanGoal(planTime time.Time, soc int, id int) {
+func (lp *Loadpoint) lockPlanGoal(planTime time.Time, soc int, id int, costLimit *float64) {
 	lp.planLocked = PlanLock{
 		Time: planTime,
 		Soc:  soc,
 		Id:   id,
+		CostLimit: costLimit,
 	}
 }
 
@@ -97,7 +99,7 @@ func (lp *Loadpoint) GetPlanGoal() (float64, bool) {
 	defer lp.RUnlock()
 
 	if lp.socBasedPlanning() {
-		_, soc, _ := lp.nextVehiclePlan()
+		_, soc, _, _ := lp.nextVehiclePlan()
 		return float64(soc), true
 	}
 
@@ -105,9 +107,22 @@ func (lp *Loadpoint) GetPlanGoal() (float64, bool) {
 	return limit, false
 }
 
+// GetPlanCostLimit returns the plan cost limit
+func (lp *Loadpoint) GetPlanCostLimit() *float64 {
+	lp.RLock()
+	defer lp.RUnlock()
+
+	if lp.socBasedPlanning() {
+		_, _, _, costLimit := lp.nextVehiclePlan()
+		return costLimit
+	}
+
+	return nil
+}
+
 // GetPlan creates a charging plan for given time and duration
 // The plan is sorted by time
-func (lp *Loadpoint) GetPlan(targetTime time.Time, requiredDuration, precondition time.Duration, continuous bool) api.Rates {
+func (lp *Loadpoint) GetPlan(targetTime time.Time, requiredDuration, precondition time.Duration, continuous bool, costLimit *float64) api.Rates {
 	if lp.planner == nil || targetTime.IsZero() {
 		return nil
 	}
@@ -115,7 +130,7 @@ func (lp *Loadpoint) GetPlan(targetTime time.Time, requiredDuration, preconditio
 	lp.log.TRACE.Printf("plan: creating plan with continuous=%v, precondition=%v, duration=%v, target=%v",
 		continuous, precondition, requiredDuration.Round(time.Second), targetTime.Round(time.Second).Local())
 
-	return lp.planner.Plan(requiredDuration, precondition, targetTime, continuous)
+	return lp.planner.Plan(requiredDuration, precondition, targetTime, continuous, costLimit)
 }
 
 // plannerActive checks if the charging plan has a currently active slot
@@ -169,7 +184,7 @@ func (lp *Loadpoint) plannerActive() (active bool) {
 
 	strategy := lp.getEffectivePlanStrategy()
 
-	plan = lp.GetPlan(planTime, requiredDuration, strategy.Precondition, strategy.Continuous)
+	plan = lp.GetPlan(planTime, requiredDuration, strategy.Precondition, strategy.Continuous, lp.GetPlanCostLimit())
 	if plan == nil {
 		lp.log.DEBUG.Println("!! plan: plan nil")
 		return false
@@ -208,7 +223,7 @@ func (lp *Loadpoint) plannerActive() (active bool) {
 
 		// lock the goal when soc-based plan becomes active for the first time
 		if lp.planLocked.Id == 0 && isSocBased {
-			lp.lockPlanGoal(planTime, int(goal), lp.getPlanId())
+			lp.lockPlanGoal(planTime, int(goal), lp.getPlanId(), lp.GetPlanCostLimit())
 		}
 
 		// remember last active plan's slot end time
