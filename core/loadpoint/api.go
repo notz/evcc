@@ -123,10 +123,12 @@ type API interface {
 	GetPlanRequiredDuration(goal, maxPower float64) time.Duration
 	// GetPlanPreCondDuration returns the precondition duration
 	GetPlanPreCondDuration() time.Duration
+	// GetPlanCostLimit returns the cost limit for the plan
+	GetPlanCostLimit() *float64
 	// SocBasedPlanning determines if the planner is soc based
 	SocBasedPlanning() bool
 	// GetPlan creates a charging plan
-	GetPlan(targetTime time.Time, requiredDuration, precondition time.Duration) api.Rates
+	GetPlan(targetTime time.Time, requiredDuration, precondition time.Duration, costLimit *float64) api.Rates
 
 	// GetSocConfig returns the soc poll settings
 	GetSocConfig() SocConfig

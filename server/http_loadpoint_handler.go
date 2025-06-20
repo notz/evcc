@@ -51,13 +51,15 @@ func planHandler(lp loadpoint.API) http.HandlerFunc {
 		goal, _ := lp.GetPlanGoal()
 		precondition := lp.GetPlanPreCondDuration()
 		requiredDuration := lp.GetPlanRequiredDuration(goal, maxPower)
-		plan := lp.GetPlan(planTime, requiredDuration, precondition)
+		costLimit := lp.GetPlanCostLimit()
+		plan := lp.GetPlan(planTime, requiredDuration, precondition, costLimit)
 
 		res := struct {
 			PlanId       int       `json:"planId"`
 			PlanTime     time.Time `json:"planTime"`
 			Duration     int64     `json:"duration"`
 			Precondition int64     `json:"precondition"`
+			CostLimit    *float64  `json:"costLimit,omitempty"`
 			Plan         api.Rates `json:"plan"`
 			Power        float64   `json:"power"`
 		}{
@@ -65,6 +67,7 @@ func planHandler(lp loadpoint.API) http.HandlerFunc {
 			PlanTime:     planTime,
 			Duration:     int64(requiredDuration.Seconds()),
 			Precondition: int64(precondition.Seconds()),
+			CostLimit:    costLimit,
 			Plan:         plan,
 			Power:        maxPower,
 		}
@@ -97,6 +100,12 @@ func staticPlanPreviewHandler(lp loadpoint.API) http.HandlerFunc {
 			return
 		}
 
+		costLimit, err := strconv.ParseFloat(vars["costLimit"], 64)
+		/*if err != nil {
+			jsonError(w, http.StatusBadRequest, err)
+			return
+		}*/
+
 		switch typ := vars["type"]; typ {
 		case "soc":
 			if !lp.SocBasedPlanning() {
@@ -115,18 +124,20 @@ func staticPlanPreviewHandler(lp loadpoint.API) http.HandlerFunc {
 
 		maxPower := lp.EffectiveMaxPower()
 		requiredDuration := lp.GetPlanRequiredDuration(goal, maxPower)
-		plan := lp.GetPlan(planTime, requiredDuration, precondition)
+		plan := lp.GetPlan(planTime, requiredDuration, precondition, &costLimit)
 
 		res := struct {
 			PlanTime     time.Time `json:"planTime"`
 			Duration     int64     `json:"duration"`
 			Precondition int64     `json:"precondition"`
+			CostLimit    *float64  `json:"costLimit,omitempty"`
 			Plan         api.Rates `json:"plan"`
 			Power        float64   `json:"power"`
 		}{
 			PlanTime:     planTime,
 			Duration:     int64(requiredDuration.Seconds()),
 			Precondition: int64(precondition.Seconds()),
+			CostLimit:    &costLimit,
 			Plan:         plan,
 			Power:        maxPower,
 		}
@@ -171,20 +182,28 @@ func repeatingPlanPreviewHandler(lp loadpoint.API) http.HandlerFunc {
 			return
 		}
 
+		costLimit, err := strconv.ParseFloat(vars["costLimit"], 64)
+		/*if err != nil {
+			jsonError(w, http.StatusBadRequest, err)
+			return
+		}*/
+
 		maxPower := lp.EffectiveMaxPower()
 		requiredDuration := lp.GetPlanRequiredDuration(soc, maxPower)
-		plan := lp.GetPlan(planTime, requiredDuration, precondition)
+		plan := lp.GetPlan(planTime, requiredDuration, precondition, &costLimit)
 
 		res := struct {
 			PlanTime     time.Time `json:"planTime"`
 			Duration     int64     `json:"duration"`
 			Precondition int64     `json:"precondition"`
+			CostLimit    *float64  `json:"costLimit,omitempty"`
 			Plan         api.Rates `json:"plan"`
 			Power        float64   `json:"power"`
 		}{
 			PlanTime:     planTime,
 			Duration:     int64(requiredDuration.Seconds()),
 			Precondition: int64(precondition.Seconds()),
+			CostLimit:    &costLimit,
 			Plan:         plan,
 			Power:        maxPower,
 		}

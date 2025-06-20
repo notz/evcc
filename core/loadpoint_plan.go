@@ -70,7 +70,7 @@ func (lp *Loadpoint) GetPlanGoal() (float64, bool) {
 	defer lp.RUnlock()
 
 	if lp.socBasedPlanning() {
-		_, _, soc, _ := lp.nextVehiclePlan()
+		_, _, soc, _, _ := lp.nextVehiclePlan()
 		return float64(soc), true
 	}
 
@@ -84,7 +84,7 @@ func (lp *Loadpoint) GetPlanPreCondDuration() time.Duration {
 	defer lp.RUnlock()
 
 	if lp.socBasedPlanning() {
-		_, precondition, _, _ := lp.nextVehiclePlan()
+		_, precondition, _, _, _ := lp.nextVehiclePlan()
 		return precondition
 	}
 
@@ -92,14 +92,27 @@ func (lp *Loadpoint) GetPlanPreCondDuration() time.Duration {
 	return precondition
 }
 
+// GetPlanCostLimit returns the plan cost limit
+func (lp *Loadpoint) GetPlanCostLimit() *float64 {
+	lp.RLock()
+	defer lp.RUnlock()
+
+	if lp.socBasedPlanning() {
+		_, _, _, _, costLimit := lp.nextVehiclePlan()
+		return costLimit
+	}
+
+	return nil
+}
+
 // GetPlan creates a charging plan for given time and duration
 // The plan is sorted by time
-func (lp *Loadpoint) GetPlan(targetTime time.Time, requiredDuration, precondition time.Duration) api.Rates {
+func (lp *Loadpoint) GetPlan(targetTime time.Time, requiredDuration, precondition time.Duration, costLimit *float64) api.Rates {
 	if lp.planner == nil || targetTime.IsZero() {
 		return nil
 	}
 
-	return lp.planner.Plan(requiredDuration, precondition, targetTime)
+	return lp.planner.Plan(requiredDuration, precondition, targetTime, costLimit)
 }
 
 // plannerActive checks if the charging plan has a currently active slot
@@ -147,7 +160,7 @@ func (lp *Loadpoint) plannerActive() (active bool) {
 		return false
 	}
 
-	plan := lp.GetPlan(planTime, requiredDuration, lp.GetPlanPreCondDuration())
+	plan := lp.GetPlan(planTime, requiredDuration, lp.GetPlanPreCondDuration(), lp.GetPlanCostLimit())
 	if plan == nil {
 		return false
 	}
