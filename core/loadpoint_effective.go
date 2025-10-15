@@ -48,6 +48,12 @@ func (lp *Loadpoint) nextActivePlan(maxPower float64, plans []plan) *plan {
 
 	// sort plans by start time
 	slices.SortStableFunc(plans, func(i, j plan) int {
+	    if (i.Id == 1) != (j.Id == 1) { // static plan always first
+	        if i.Id == 1 {
+				return -1
+			}
+			return 1
+	    }
 		return i.Start.Compare(j.Start)
 	})
 
